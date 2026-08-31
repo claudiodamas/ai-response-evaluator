@@ -1,4 +1,4 @@
-# SPEC 003 — Golden Response Evaluation
+# SPEC 002 — Golden Response Evaluation
 
 ## 1. Objective
 
