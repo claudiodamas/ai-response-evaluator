@@ -1,4 +1,4 @@
-# Specification 001 — API Foundation
+# SPEC 001 — API Foundation
 
 ## Goal
 

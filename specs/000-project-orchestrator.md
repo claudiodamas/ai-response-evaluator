@@ -1,4 +1,4 @@
-# Spec 000 — Project Orchestrator
+# SPEC 000 — Project Orchestrator
 
 ## 1. Project
 
