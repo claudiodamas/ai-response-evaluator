@@ -119,3 +119,4 @@ A API deverá rejeitar requisições inválidas com `422 Unprocessable Entity`:
 * [ ] `GET /evaluations/history` retorna a lista de avaliações do histórico do usuário com status 200.
 * [ ] `GET /evaluations/history` retorna lista vazia `[]` quando não houver registros para o e-mail informado.
 * [ ] Todos os testes automatizados cobrem os critérios e passam com 100% de sucesso.
+

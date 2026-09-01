@@ -2,6 +2,7 @@ import uuid
 from typing import List
 from fastapi import FastAPI, HTTPException, Query, status
 from pydantic import BaseModel, field_validator
+from app.services.llm_judge import evaluate_pairwise
 
 app = FastAPI(
     title="AI Response Evaluator API",
@@ -46,10 +47,12 @@ def health_check():
 def create_evaluation(request: ComparisonRequest):
     evaluation_id = str(uuid.uuid4())
     
-    # Deterministic scoring calculation
-    left_score = 10.0
-    right_score = 0.0
-    comment = "Avaliação comparativa concluída com sucesso."
+    # LLM-as-a-Judge evaluation
+    eval_result = evaluate_pairwise(
+        query=request.query,
+        left_response=request.left_response,
+        right_response=request.right_response,
+    )
 
     evaluation = ComparisonEvaluation(
         id=evaluation_id,
@@ -57,9 +60,9 @@ def create_evaluation(request: ComparisonRequest):
         query=request.query,
         left_response=request.left_response,
         right_response=request.right_response,
-        left_score=left_score,
-        right_score=right_score,
-        comment=comment,
+        left_score=eval_result["left_score"],
+        right_score=eval_result["right_score"],
+        comment=eval_result["comment"],
     )
     
     evaluations_history.append(evaluation.model_dump())

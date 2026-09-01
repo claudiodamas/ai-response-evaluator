@@ -1,5 +1,7 @@
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from app.main import app
+from app.services.llm_judge import evaluate_pairwise
 
 client = TestClient(app)
 
@@ -24,6 +26,27 @@ def test_create_valid_pairwise_evaluation():
     assert isinstance(data["left_score"], (int, float))
     assert isinstance(data["right_score"], (int, float))
     assert isinstance(data["comment"], str)
+
+
+def test_create_evaluation_with_mocked_llm():
+    mock_llm_result = {
+        "left_score": 9.5,
+        "right_score": 2.0,
+        "comment": "A resposta esquerda é precisa e completa, enquanto a direita contém erros conceituais."
+    }
+    payload = {
+        "query": "Explique o conceito de RAG.",
+        "left_response": "RAG combina recuperação de documentos com geração por LLM.",
+        "right_response": "RAG é um tipo de banco de dados relacional antigo."
+    }
+    
+    with patch("app.main.evaluate_pairwise", return_value=mock_llm_result):
+        response = client.post("/evaluations", json=payload)
+        assert response.status_code == 201
+        data = response.json()
+        assert data["left_score"] == 9.5
+        assert data["right_score"] == 2.0
+        assert data["comment"] == mock_llm_result["comment"]
 
 
 def test_create_evaluation_auto_generated_id():
@@ -137,3 +160,13 @@ def test_get_history_empty_for_unknown_email():
     history = response.json()
     assert isinstance(history, list)
     assert len(history) == 0
+
+
+def test_llm_judge_fallback():
+    # When no API key is provided, evaluate_pairwise should return a safe fallback dictionary
+    result = evaluate_pairwise("Query teste", "Resp A", "Resp B")
+    assert "left_score" in result
+    assert "right_score" in result
+    assert "comment" in result
+    assert isinstance(result["left_score"], (int, float))
+    assert isinstance(result["right_score"], (int, float))
