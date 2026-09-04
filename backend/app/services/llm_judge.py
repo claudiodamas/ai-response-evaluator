@@ -1,19 +1,22 @@
 import json
 import os
 import re
+import time
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 import httpx
 
 
 def load_env_file():
     """Carrega variáveis do arquivo .env caso existam e não estejam no ambiente."""
+    project_root = Path(__file__).resolve().parents[3]
     env_paths = [
-        os.path.join(os.getcwd(), ".env"),
-        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
+        Path.cwd() / ".env",
+        project_root / ".env",
     ]
     for env_path in env_paths:
-        if os.path.exists(env_path):
-            with open(env_path, "r", encoding="utf-8") as f:
+        if env_path.is_file():
+            with env_path.open("r", encoding="utf-8-sig") as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
@@ -93,7 +96,8 @@ def _clean_json_response(text: str) -> str:
 
 
 def evaluate_with_gemini(query: str, left_response: str, right_response: str, api_key: str) -> Dict[str, Any]:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     prompt = build_dynamic_prompt(query, left_response, right_response)
     
     payload = {
@@ -107,13 +111,27 @@ def evaluate_with_gemini(query: str, left_response: str, right_response: str, ap
         }
     }
     
-    with httpx.Client(timeout=30.0) as client:
-        response = client.post(url, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
-        clean_text = _clean_json_response(raw_text)
-        return json.loads(clean_text)
+    timeout = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "60"))
+    max_retries = int(os.getenv("GEMINI_MAX_RETRIES", "2"))
+    retryable_statuses = {429, 500, 502, 503, 504}
+
+    with httpx.Client(timeout=timeout) as client:
+        for attempt in range(max_retries + 1):
+            try:
+                response = client.post(url, params={"key": api_key}, json=payload)
+                if response.status_code in retryable_statuses and attempt < max_retries:
+                    time.sleep(2 ** attempt)
+                    continue
+
+                response.raise_for_status()
+                data = response.json()
+                raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+                clean_text = _clean_json_response(raw_text)
+                return json.loads(clean_text)
+            except httpx.TransportError:
+                if attempt == max_retries:
+                    raise
+                time.sleep(2 ** attempt)
 
 
 def evaluate_with_openai(query: str, left_response: str, right_response: str, api_key: str) -> Dict[str, Any]:
@@ -180,11 +198,20 @@ def evaluate_pairwise(query: str, left_response: str, right_response: str) -> Di
                 "right_score": float(result.get("right_score", 5.0)),
                 "comment": str(result.get("comment", "Avaliação concluída pelo OpenAI."))
             }
-    except Exception as e:
+    except httpx.HTTPStatusError as e:
         return {
             "left_score": 5.0,
             "right_score": 5.0,
-            "comment": f"Avaliação gerada via fallback seguro devido a indisponibilidade temporária da LLM: {str(e)}"
+            "comment": (
+                "Avaliação gerada via fallback seguro porque o Gemini retornou "
+                f"o status HTTP {e.response.status_code}. Verifique a cota e o modelo configurado."
+            )
+        }
+    except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return {
+            "left_score": 5.0,
+            "right_score": 5.0,
+            "comment": "Avaliação gerada via fallback seguro devido a uma falha temporária na LLM."
         }
         
     return {
